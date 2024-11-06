@@ -1,0 +1,175 @@
+---
+title: "BIS581v"
+output:
+  word_document: default
+  html_notebook: default
+---
+
+BIS 581v Mid project. You have three data sets: central, western and eastern region.  You may need to edit the code below for the path to the files.
+
+```{r}
+library(tidyr)
+library(tidyverse)
+#load from CSV
+centralData <- read.csv("Orders_Central.csv", header=TRUE)
+westData <- read.csv("orders_west.csv", header=TRUE)
+eastData <- read.delim("Orders_East.txt", header=TRUE, sep='\t')
+```
+For this assignment, answer the following questions, but please note: the data may or may not be setup such that you can just answer. You may need to perform some "data wrangling" before you can answer. Include the code you use for any wrangling/EDA in your submission. Also include the code you use to answer each question along with text indicating what the answer is. You must provide proof of your answer by showing your R code. You may use online resources and talk to others, but what you submit must be your own work.
+```{r}
+#Wrangling the data
+# Combine Year, Month, and Day columns into a Date format
+centralData$Order.Date <- as.Date(sprintf("%s-%s-%s", centralData$Order.Year,centralData$Order.Month,centralData$Order.Day))
+#The sprintf function in R formats strings with placeholders, allowing precise control over numbers, text, and alignment, 
+
+centralData$Ship.Date <- as.Date(sprintf("%s-%s-%s", centralData$Ship.Year, centralData$Ship.Month,centralData$Ship.Day))
+
+# Convert 'Order.Date' and 'Ship.Date' columns from character to Date, ignoring the time
+eastData$Order.Date <- as.Date(eastData$Order.Date, format = "%m/%d/%Y")
+eastData$Ship.Date <- as.Date(eastData$Ship.Date, format = "%m/%d/%Y")
+
+# Convert 'Order.Date' and 'Ship.Date' columns to Date, ignoring the time part
+westData$Order.Date <- as.Date(substr(westData$Order.Date, 1, 10))
+westData$Ship.Date <- as.Date(substr(westData$Ship.Date, 1, 10))
+
+# Set the 'Region' for the central data
+centralData$Region <- "Central"
+
+# Remove non-numeric characters from 'Sales' and convert to numeric for calculations
+eastData$Sales <- as.numeric(gsub("[^0-9.]", "", eastData$Sales))
+#The gsub function in R is used to replace all occurrences of a specified pattern within a string with a replacement value, using regular expressions for pattern matching.
+
+
+# Combining all data using bind_rows
+combined_orders <- bind_rows(centralData, eastData, westData)
+
+```
+
+
+
+which region, on average, ships products faster:
+```{r}
+# Calculate the average shipping time for each region
+average_ship_time <- aggregate((combined_orders$Ship.Date - combined_orders$Order.Date), by = list(combined_orders$Region), mean)
+
+# Rename the columns
+colnames(average_ship_time) <- c("Region", "Average_Shipping_Time")
+
+# View the result
+average_ship_time
+
+# Find the region with the fastest average shipping time
+fastest_region <- average_ship_time[which.min(average_ship_time$Average_Shipping_Time), ]
+fastest_region
+
+
+
+
+```
+
+Which products ship slowest by region:
+```{r}
+# Central region: Find the slowest-shipped product
+central_slowestproducts <- centralData %>%
+  mutate(Shipping_Time = as.numeric(Ship.Date - Order.Date)) %>%
+  group_by(Product) %>%
+  summarize(slowest_central = max(Shipping_Time, na.rm = TRUE)) %>%
+  filter(slowest_central == max(slowest_central))
+
+# East region: Find the slowest-shipped product
+east_slowestproducts <- eastData %>%
+  mutate(Shipping_Time = as.numeric(Ship.Date - Order.Date)) %>%
+  group_by(Product.Name) %>%
+  summarize(slowest_east = max(Shipping_Time, na.rm = TRUE)) %>%
+  filter(slowest_east == max(slowest_east))
+
+# West region: Find the slowest-shipped product
+west_slowestproducts <- westData %>%
+  mutate(Shipping_Time = as.numeric(Ship.Date - Order.Date)) %>%
+  group_by(Product.Name) %>%
+  summarize(slowest_west = max(Shipping_Time, na.rm = TRUE)) %>%
+  filter(slowest_west == max(slowest_west))
+
+# Print the slowest-shipped products for each region
+print(central_slowestproducts)
+print(east_slowestproducts)
+print(west_slowestproducts)
+
+
+```
+
+Plot time to ship by category, by year.
+```{r}
+# Load required library
+library(ggplot2)
+
+# Ensure Order.Date and Ship.Date are in Date format
+combined_orders$Order.Date <- as.Date(combined_orders$Order.Date)
+combined_orders$Ship.Date <- as.Date(combined_orders$Ship.Date)
+
+# Calculate shipping time in days
+combined_orders$Shipping.Time <- as.numeric(difftime(combined_orders$Ship.Date, combined_orders$Order.Date, units = "days"))
+
+# Remove rows with non-finite values in Shipping.Time (e.g., NA or Inf)
+combined_orders <- combined_orders[is.finite(combined_orders$Shipping.Time), ]
+
+# Create a new column for the year from Order.Date
+combined_orders$Year <- format(combined_orders$Order.Date, "%Y")
+
+# Plot shipping time by category, grouped by year
+ggplot(combined_orders, aes(x = Year, y = Shipping.Time)) +
+  geom_boxplot() +  # Create boxplot
+  facet_wrap(~ Category) +  # Separate plots for each category
+  labs(title = "Time to Ship by Category by Year", x = "Year", y = "Shipping Time (Days)")
+```
+
+which categories have highest profit by region, chain-wide?
+```{r}
+# Calculate the total profit for each product category by region
+Sum_profit <- aggregate(Profit ~ Region + Category, data = combined_orders, sum)
+
+# Print the total profit for each category by region
+print(Sum_profit)
+
+# Find the category with the highest profit chain-wide (across all regions)
+highest_chained_profit <- Sum_profit[which.max(Sum_profit$Profit), ]
+
+# Print the category and region with the highest total profit
+print(highest_chained_profit)
+
+
+```
+
+which segments have the lowest profit by region?
+```{r}
+# Calculate the average profit for each segment by region
+Avg_profit <- aggregate(Profit ~ Region + Segment, data = combined_orders, mean)
+
+# Print the average profit for each segment by region
+print(Avg_profit)
+
+# Find the segment with the lowest average profit chain-wide (across all regions)
+lowest_profit_by_region <- Avg_profit[which.min(Avg_profit$Profit), ]
+
+# Print the segment with the lowest average profit
+print(lowest_profit_by_region)
+
+
+```
+
+What are yearly sales by region?
+```{r}
+# Convert Order.Date to Date format if not already done
+combined_orders$Order.Date <- as.Date(combined_orders$Order.Date)
+
+# Extract the year from Order.Date
+combined_orders$Year <- format(combined_orders$Order.Date, "%Y")
+
+# Calculate yearly sales by region
+Yearly_sales <- aggregate(Sales ~ Region + Year, data = combined_orders, sum)
+
+# Print the yearly sales for each region
+print(Yearly_sales)
+
+```
+
